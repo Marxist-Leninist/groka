@@ -180,7 +180,11 @@ fi
 epoch=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
     -C "$dist_dir" -cf - "$package_name" | gzip -n > "$archive"
-sha256sum "$archive" > "$archive.sha256"
+(
+    cd "$dist_dir"
+    archive_name=$(basename "$archive")
+    sha256sum "$archive_name" > "$archive_name.sha256"
+)
 
 printf 'Android binary: %s\n' "$binary"
 printf 'Package: %s\n' "$archive"
