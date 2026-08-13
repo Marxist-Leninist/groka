@@ -47,7 +47,14 @@ fn load_or_compute_agent_id() -> String {
     // - macOS: mid uses unique hardware IDs (serial, UUID, SEID).
     // - Linux: /etc/machine-id is shared across containers from the same base
     //   image, so include $HOSTNAME (container/host name) for uniqueness.
+    // - Android: create a random value once; the resulting stable ID is stored
+    //   in GROK_HOME and reused across process restarts. Android intentionally
+    //   exposes no desktop-style machine-id surface to this native CLI.
     // - Fallback: random UUIDv4 if mid or hostname are unavailable.
+    #[cfg(target_os = "android")]
+    let machine_hash = uuid::Uuid::new_v4().to_string();
+
+    #[cfg(not(target_os = "android"))]
     let machine_hash = if cfg!(target_os = "linux") {
         match std::env::var("HOSTNAME") {
             Ok(hostname) if !hostname.is_empty() => {

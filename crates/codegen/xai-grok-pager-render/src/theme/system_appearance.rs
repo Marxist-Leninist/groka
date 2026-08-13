@@ -110,6 +110,7 @@ fn resolve_appearance_chain(
 /// Used by `grok wrap` to stamp the *local* OS theme into the child env
 /// before SSH. Must not consult env hints — those may be a previous wrap
 /// hop's snapshot.
+#[cfg(not(target_os = "android"))]
 #[must_use]
 pub fn detect_desktop() -> Option<SystemAppearance> {
     match dark_light::detect() {
@@ -118,6 +119,15 @@ pub fn detect_desktop() -> Option<SystemAppearance> {
         // Mode::Unspecified or Err — no system preference detected
         _ => None,
     }
+}
+
+/// A native Termux/Tmix process is not an embedded Android Activity and has no
+/// desktop appearance service. Returning `None` deliberately advances the
+/// normal chain to explicit env stamps, OSC 11, and COLORFGBG.
+#[cfg(target_os = "android")]
+#[must_use]
+pub const fn detect_desktop() -> Option<SystemAppearance> {
+    None
 }
 
 /// Inner detection via desktop APIs, explicit stamps, cached OSC 11, then

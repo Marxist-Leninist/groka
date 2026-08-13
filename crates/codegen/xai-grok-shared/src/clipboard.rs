@@ -28,8 +28,9 @@
 //! `GROK_CLIPBOARD_NO_NATIVE_READ=1` disables the in-process read entirely
 //! (kill switch if a future macOS gates `dataForType:` behind a prompt).
 //!
-//! On Linux and Windows, `arboard` is used directly (it does not link AppKit on
-//! those platforms).
+//! On Linux and Windows, `arboard` is used directly. Native Android/Termux
+//! builds call `termux-clipboard-get` and `termux-clipboard-set`; image clipboard
+//! transfer is not exposed by those command-line helpers.
 //!
 //! ## OSC 52 (remote clipboard)
 //!
@@ -87,8 +88,8 @@ pub fn get_image() -> anyhow::Result<Option<ImageData>> {
 
 /// Read file references the file manager places on the clipboard
 /// when a file is selected but no plain text accompanies it. Backed
-/// by `«class furl»` (osascript) on macOS, `arboard::Get::file_list`
-/// (CF_HDROP / `text/uri-list`) elsewhere. Returns newline-joined
+/// by `«class furl»` (osascript) on macOS and `arboard::Get::file_list`
+/// (CF_HDROP / `text/uri-list`) on desktop platforms. Returns newline-joined
 /// absolute paths in the format the drop-path parser accepts.
 pub fn get_file_urls() -> anyhow::Result<Option<String>> {
     platform::get_file_urls()
@@ -299,8 +300,8 @@ pub fn set_image_file(path: &std::path::Path) -> anyhow::Result<()> {
 
 /// The clipboard tool used for native writes on the current platform.
 ///
-/// Returns `"pbcopy"` on macOS, `"arboard"` on Windows, and the probed CLI
-/// tool name on Linux (or `"arboard"` if no CLI tool was found).
+/// Returns `"pbcopy"` on macOS, `"termux-clipboard"` on Android, `"arboard"`
+/// on Windows, and the probed CLI tool name on Linux.
 pub fn native_tool_name() -> &'static str {
     #[cfg(target_os = "macos")]
     {
@@ -310,7 +311,11 @@ pub fn native_tool_name() -> &'static str {
     {
         platform::linux_tool_spec().map_or("arboard", |spec| spec.name)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "android")]
+    {
+        "termux-clipboard"
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
     {
         "arboard"
     }
@@ -568,6 +573,153 @@ mod attachments_protocol {
 // ---------------------------------------------------------------------------
 // macOS: subprocess-based clipboard (no AppKit linkage)
 // ---------------------------------------------------------------------------
+#[cfg(target_os = "android")]
+mod platform {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    use super::{ClipboardAttachments, ImageData, NativeWriteOutcome, WaylandDataControlProbe};
+
+    const CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(3);
+    const GET_COMMAND_ENV: &str = "GROK_ANDROID_CLIPBOARD_GET";
+    const SET_COMMAND_ENV: &str = "GROK_ANDROID_CLIPBOARD_SET";
+
+    fn command_from_env(variable: &str, fallback: &str) -> Command {
+        let program = std::env::var_os(variable)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| fallback.into());
+        Command::new(program)
+    }
+
+    fn prepare(command: &mut Command) {
+        xai_tty_utils::detach_std_command(command);
+    }
+
+    pub fn get_text() -> anyhow::Result<Option<String>> {
+        let mut command = command_from_env(GET_COMMAND_ENV, "termux-clipboard-get");
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        prepare(&mut command);
+
+        let mut child = command.spawn().map_err(|error| {
+            anyhow::anyhow!(
+                "failed to start Android clipboard reader (install/provide termux-clipboard-get): {error}"
+            )
+        })?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Android clipboard reader stdout was not piped"))?;
+        let reader = std::thread::Builder::new()
+            .name("android-clipboard-read".into())
+            .spawn(move || {
+                let mut bytes = Vec::new();
+                stdout.read_to_end(&mut bytes).map(|_| bytes)
+            })?;
+
+        let status = super::wait_with_deadline(&mut child, CLIPBOARD_TIMEOUT)?;
+        let bytes = reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("Android clipboard reader thread panicked"))??;
+        if !status.success() {
+            anyhow::bail!("Android clipboard reader exited with {status}");
+        }
+        let text = String::from_utf8(bytes)
+            .map_err(|error| anyhow::anyhow!("Android clipboard was not valid UTF-8: {error}"))?;
+        Ok((!text.is_empty()).then_some(text))
+    }
+
+    pub fn set_text_with_outcome(text: &str) -> NativeWriteOutcome {
+        let tool = "termux-clipboard-set";
+        let mut outcome = NativeWriteOutcome {
+            cli_tools_tried: vec![tool],
+            ..NativeWriteOutcome::default()
+        };
+        let result = (|| -> anyhow::Result<()> {
+            let mut command = command_from_env(SET_COMMAND_ENV, tool);
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            prepare(&mut command);
+            let mut child = command.spawn().map_err(|error| {
+                anyhow::anyhow!(
+                    "failed to start Android clipboard writer (install/provide termux-clipboard-set): {error}"
+                )
+            })?;
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Android clipboard writer stdin was not piped"))?;
+            stdin.write_all(text.as_bytes())?;
+            drop(stdin);
+            let status = super::wait_with_deadline(&mut child, CLIPBOARD_TIMEOUT)?;
+            if !status.success() {
+                anyhow::bail!("Android clipboard writer exited with {status}");
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = result {
+            tracing::debug!(%error, "Android clipboard helper write failed; trying OSC 52");
+            const OSC52_TOOL: &str = "osc52";
+            outcome.cli_tools_tried.push(OSC52_TOOL);
+            match super::set_text_osc52(text, false) {
+                Ok(()) => {
+                    outcome.cli_ok = true;
+                    outcome.cli_ok_tools.push(OSC52_TOOL);
+                    outcome.any_ok = true;
+                }
+                Err(osc52_error) => {
+                    tracing::debug!(%osc52_error, "Android OSC 52 clipboard fallback failed");
+                }
+            }
+        } else {
+            outcome.cli_ok = true;
+            outcome.cli_ok_tools.push(tool);
+            outcome.any_ok = true;
+        }
+        outcome
+    }
+
+    pub fn get_image() -> anyhow::Result<Option<ImageData>> {
+        Ok(None)
+    }
+
+    pub fn get_file_urls() -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
+    pub fn get_attachments() -> anyhow::Result<ClipboardAttachments> {
+        Ok(ClipboardAttachments::default())
+    }
+
+    pub fn set_image_file(_path: &std::path::Path) -> anyhow::Result<()> {
+        anyhow::bail!("Android Termux clipboard helpers do not support image clipboard writes")
+    }
+
+    pub fn clipboard_image_snapshot() -> (Option<u64>, bool) {
+        (None, false)
+    }
+
+    pub fn clipboard_change_count() -> Option<u64> {
+        None
+    }
+
+    pub fn clipboard_prewarm() {}
+
+    pub fn probe_wayland_data_control() -> WaylandDataControlProbe {
+        WaylandDataControlProbe::Unavailable
+    }
+
+    pub fn wayland_data_control_supported() -> bool {
+        false
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::process::{Command, Stdio};
@@ -1191,7 +1343,7 @@ mod platform {
 // ---------------------------------------------------------------------------
 // Linux / Windows: arboard with CLI-tool fallback on Linux
 // ---------------------------------------------------------------------------
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 mod platform {
     use super::ImageData;
     use std::process::{Command, Stdio};

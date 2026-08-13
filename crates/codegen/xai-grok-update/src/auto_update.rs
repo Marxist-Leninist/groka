@@ -504,6 +504,12 @@ fn env_installer() -> Option<&'static str> {
 }
 
 pub async fn get_installer() -> Option<&'static str> {
+    // GrokA is compiled for Android/Bionic and managed by its Termux installer.
+    // The upstream binary channels publish desktop Linux artifacts, which are
+    // ABI-incompatible and would undo the native Android port.
+    if cfg!(target_os = "android") {
+        return None;
+    }
     if let Some(i) = env_installer() {
         return Some(i);
     }

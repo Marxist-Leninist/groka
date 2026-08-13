@@ -12,6 +12,21 @@ pub(crate) mod user_identity;
 // unchanged.
 pub use xai_grok_shell_base::util::*;
 
+/// Open a URL using the host platform's normal browser integration.
+///
+/// Native Android/Termux builds use `termux-open-url`; desktop builds retain
+/// the upstream `webbrowser` implementation.
+pub(crate) fn open_browser_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        xai_tty_utils::open_android_url(url).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        webbrowser::open(url).map_err(|error| error.to_string())
+    }
+}
+
 pub(crate) fn is_user_instruction_path(
     path: &std::path::Path,
     grok_home: &std::path::Path,

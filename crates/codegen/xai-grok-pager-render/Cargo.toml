@@ -39,9 +39,6 @@ documented = { workspace = true }
 # VTE terminal emulation for native rendering of command output (SGR, cursor, \r)
 vte = { workspace = true }
 
-# System appearance detection (dark/light mode)
-dark-light = "2"
-
 # Utilities
 strum = { workspace = true }
 anyhow = { workspace = true }
@@ -87,6 +84,11 @@ url = { workspace = true }
 
 # Hot-reload config (dev mode)
 notify = { workspace = true, optional = true }
+
+# Native Android/Termux has no desktop appearance service. Theme detection
+# there uses explicit env stamps, OSC 11, and COLORFGBG instead.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+dark-light = "2"
 
 # libc: poll/read for non-blocking terminal reads in theme/osc11.rs.
 [target.'cfg(unix)'.dependencies]

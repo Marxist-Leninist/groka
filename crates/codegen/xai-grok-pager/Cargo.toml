@@ -96,11 +96,9 @@ xai-file-utils = { path = "../xai-file-utils" }
 # Crash-recovery registry of open TUI sessions.
 xai-grok-active-sessions = { workspace = true }
 xai-grok-config = { workspace = true }
-# Voice dictation. `audio` (mic capture) is enabled on every target. On
-# macOS/Windows it links cpal; on Linux it compiles a subprocess-recorder
-# backend instead, so cpal -> alsa-sys never reaches the static musl binary
-# (cpal is target-gated to non-Linux inside xai-grok-voice).
-xai-grok-voice = { path = "../xai-grok-voice", default-features = false, features = ["audio"] }
+# Voice dictation. Desktop targets retain microphone capture. Native Android
+# runs as a Termux executable rather than an embedded Activity, so it uses the
+# crate's no-audio stubs instead of cpal's Android application-context backend.
 xai-grok-shell = { workspace = true }
 xai-grok-workspace = { workspace = true }
 # Foreign coding-agent session discovery.
@@ -151,6 +149,15 @@ parking_lot.workspace = true
 # nix: signal handling in notifications/.
 # signal-hook: SIGWINCH handler for the `grok wrap` PTY wrapper (pty_wrap.rs).
 # libc: poll/read for non-blocking terminal reads in theme/osc11.rs.
+[target.'cfg(not(target_os = "android"))'.dependencies.xai-grok-voice]
+path = "../xai-grok-voice"
+default-features = false
+features = ["audio"]
+
+[target.'cfg(target_os = "android")'.dependencies.xai-grok-voice]
+path = "../xai-grok-voice"
+default-features = false
+
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, features = ["signal"] }
 signal-hook = { workspace = true }

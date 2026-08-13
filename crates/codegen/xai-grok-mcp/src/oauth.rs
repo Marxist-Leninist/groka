@@ -24,6 +24,17 @@ use crate::rmcp::transport::auth::{AuthorizationManager, OAuthClientConfig};
 /// screens (e.g. Linear, GitHub), so keep this human-recognizable.
 const MCP_OAUTH_CLIENT_NAME: &str = "Grok";
 
+fn open_browser_url(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        xai_tty_utils::open_android_url(url).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        webbrowser::open(url).map_err(|error| error.to_string())
+    }
+}
+
 /// How often the interactive OAuth flow polls the credential store to detect
 /// a login completed in another window or process.
 const CREDENTIAL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
@@ -384,7 +395,7 @@ async fn run_browser_auth_flow(
 
     // 4. Open browser for user consent.
     tracing::info!(server = server_name, "Opening browser for OAuth consent");
-    if let Err(e) = webbrowser::open(&auth_url) {
+    if let Err(e) = open_browser_url(&auth_url) {
         // eprintln! corrupts the TUI alternate screen (in-process, fd 2).
         // TODO: surface auth URL via ACP notification instead.
         tracing::warn!(%e, url = %auth_url, "Failed to open browser for MCP OAuth; user must visit URL manually");

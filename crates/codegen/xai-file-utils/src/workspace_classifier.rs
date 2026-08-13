@@ -82,6 +82,25 @@ fn is_platform_system_dir(cwd: &Path) -> bool {
         return true;
     }
 
+    #[cfg(target_os = "android")]
+    if [
+        "/system",
+        "/vendor",
+        "/product",
+        "/apex",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/acct",
+        "/metadata",
+        "/data/local/tmp",
+    ]
+    .iter()
+    .any(|root| cwd == Path::new(root) || cwd.starts_with(format!("{root}/")))
+    {
+        return true;
+    }
+
     false
 }
 
@@ -139,6 +158,41 @@ fn is_platform_home_excluded(cwd: &Path, home: &Path) -> bool {
         "videos",
     ]
     .contains(&name.as_str())
+}
+
+#[cfg(target_os = "android")]
+fn is_platform_home_excluded(cwd: &Path, home: &Path) -> bool {
+    let Ok(relative) = cwd.strip_prefix(home) else {
+        return false;
+    };
+    let mut components = relative.components();
+    let Some(std::path::Component::Normal(first)) = components.next() else {
+        return false;
+    };
+    let first = first.to_string_lossy().to_lowercase();
+
+    // `termux-setup-storage` creates ~/storage as a set of links into shared
+    // Android storage. Do not infer that the whole shared-storage tree is a
+    // project merely because Grok was launched there. A real repository still
+    // wins through the .git check at the start of `is_project_dir`.
+    if first == "storage" {
+        return true;
+    }
+
+    if components.next().is_some() {
+        return false;
+    }
+    [
+        "desktop",
+        "downloads",
+        "documents",
+        "pictures",
+        "music",
+        "movies",
+        "videos",
+        "shared",
+    ]
+    .contains(&first.as_str())
 }
 
 #[cfg(target_os = "windows")]

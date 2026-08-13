@@ -53,6 +53,43 @@ pub const HANGUP_GRACE: std::time::Duration = std::time::Duration::from_millis(2
 
 pub mod runtime;
 
+/// Launch an Android URL handler from a native Termux/Tmix process.
+///
+/// Android command-line programs do not have `xdg-open` or a desktop session.
+/// Termux-compatible hosts provide `termux-open-url`, which forwards the URL to
+/// Android's normal intent resolver. `GROK_ANDROID_URL_OPENER` may override the
+/// executable path for Termux forks whose helper is installed elsewhere.
+#[cfg(target_os = "android")]
+pub fn open_android_url(url: &str) -> io::Result<()> {
+    let opener = std::env::var_os("GROK_ANDROID_URL_OPENER")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "termux-open-url".into());
+    let mut command = std::process::Command::new(opener);
+    command
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    detach_std_command(&mut command);
+    command.spawn().map(|_| ())
+}
+
+/// Launch Android's file handler from a native Termux/Tmix process.
+#[cfg(target_os = "android")]
+pub fn open_android_path(path: &std::path::Path) -> io::Result<()> {
+    let opener = std::env::var_os("GROK_ANDROID_FILE_OPENER")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "termux-open".into());
+    let mut command = std::process::Command::new(opener);
+    command
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    detach_std_command(&mut command);
+    command.spawn().map(|_| ())
+}
+
 // ---------------------------------------------------------------------------
 // TTY detach — pre_exec building block
 // ---------------------------------------------------------------------------

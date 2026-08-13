@@ -1,0 +1,49 @@
+name: Android Termux
+
+on:
+  push:
+    branches: [termux-android]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check scripts and delivery tests
+        run: |
+          bash -n termux/build-android.sh
+          sh -n termux/install.sh termux/groka \
+            termux/tests/test-installer.sh termux/tests/test-launcher.sh
+          sh termux/tests/test-installer.sh
+          sh termux/tests/test-launcher.sh
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang cmake ninja-build perl pkg-config \
+            protobuf-compiler
+
+      - name: Install Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+
+      - name: Build native Android package
+        env:
+          CARGO_BUILD_JOBS: 4
+        run: ./termux/build-android.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: groka-android-arm64
+          path: |
+            dist/groka-*-android-arm64.tar.gz
+            dist/groka-*-android-arm64.tar.gz.sha256
+          if-no-files-found: error

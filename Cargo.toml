@@ -117,7 +117,16 @@ arboard = "3.6"
 arc-swap = "1.7"
 assert_matches = "1.5.0"
 async-compression = { version = "0.4.17", default-features = false, features = ["gzip", "zstd", "tokio"] }
-async-lsp = { version = "0.2.3", features = ["tokio", "tracing"] }
+# Grok uses async-lsp as a language client. Disable the crate's default
+# `client-monitor` middleware: it is server-only and pulls waitpid-any, whose
+# pidfd/kqueue implementation does not support Android. Keep the client-facing
+# API features explicit so desktop and Android behavior stay aligned.
+async-lsp = { version = "0.2.3", default-features = false, features = [
+    "omni-trait",
+    "stdio",
+    "tokio",
+    "tracing",
+] }
 async-openai = { version = "0.33.0", features = ["responses"] }
 async-stream = "0.3"
 async-trait = "0.1"

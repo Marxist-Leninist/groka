@@ -23,11 +23,15 @@ pub enum OpenUrlResult {
 /// Whether the environment looks capable of opening a GUI browser.
 ///
 /// Pure helper for tests. On Linux/BSD, requires a non-empty `DISPLAY` or
-/// `WAYLAND_DISPLAY` (or a non-empty `BROWSER` override). macOS/Windows
-/// are treated as available at the env level (spawn failure is still
+/// `WAYLAND_DISPLAY` (or a non-empty `BROWSER` override). macOS, Windows,
+/// and Android are treated as available at the env level (spawn failure is still
 /// reported by [`open_url`]).
 pub fn browser_open_likely_available_from_env(env: &HashMap<String, String>) -> bool {
-    if cfg!(any(target_os = "macos", target_os = "windows")) {
+    if cfg!(any(
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    )) {
         return true;
     }
     // Explicit BROWSER override: allow even without a display server so
@@ -67,7 +71,8 @@ pub fn browser_unavailable_line(url: &str, copied: bool) -> String {
 /// Open a URL in the system's default browser/handler.
 ///
 /// Spawns the platform-native opener (`open` on macOS, `xdg-open` on
-/// Linux, `cmd /c start` on Windows) with fully detached stdio so it
+/// Linux, `cmd /c start` on Windows, `termux-open-url` on Android) with
+/// fully detached stdio so it
 /// cannot block the pager.
 ///
 /// Returns `true` when the opener was launched (or the test seam recorded
@@ -105,35 +110,43 @@ pub fn open_url(url: &str) -> bool {
         return false;
     }
 
-    #[cfg(target_os = "macos")]
-    let cmd = "open";
-    #[cfg(target_os = "windows")]
-    let cmd = "cmd";
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let cmd = "xdg-open";
+    #[cfg(target_os = "android")]
+    {
+        return xai_tty_utils::open_android_url(url).is_ok();
+    }
 
-    let mut command = std::process::Command::new(cmd);
-    #[cfg(target_os = "windows")]
-    command.args(["/c", "start", ""]);
-    command
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    xai_grok_tools::util::detach_std_command(&mut command);
-    match command.spawn() {
-        Ok(_) => true,
-        Err(e) => {
-            // Redact URL to avoid leaking sensitive query params to logs.
-            let redacted = url::Url::parse(url)
-                .map(|mut u| {
-                    u.set_query(None);
-                    u.set_fragment(None);
-                    u.to_string()
-                })
-                .unwrap_or_else(|_| "<unparseable>".to_string());
-            tracing::warn!(url = %redacted, error = %e, "failed to open URL");
-            false
+    #[cfg(not(target_os = "android"))]
+    {
+        #[cfg(target_os = "macos")]
+        let cmd = "open";
+        #[cfg(target_os = "windows")]
+        let cmd = "cmd";
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let cmd = "xdg-open";
+
+        let mut command = std::process::Command::new(cmd);
+        #[cfg(target_os = "windows")]
+        command.args(["/c", "start", ""]);
+        command
+            .arg(url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        xai_grok_tools::util::detach_std_command(&mut command);
+        match command.spawn() {
+            Ok(_) => true,
+            Err(e) => {
+                // Redact URL to avoid leaking sensitive query params to logs.
+                let redacted = url::Url::parse(url)
+                    .map(|mut u| {
+                        u.set_query(None);
+                        u.set_fragment(None);
+                        u.to_string()
+                    })
+                    .unwrap_or_else(|_| "<unparseable>".to_string());
+                tracing::warn!(url = %redacted, error = %e, "failed to open URL");
+                false
+            }
         }
     }
 }
@@ -148,9 +161,16 @@ pub fn open_url(url: &str) -> bool {
 /// [`reveal_in_explorer`] instead.
 #[cfg(not(target_os = "windows"))]
 fn build_open_path_command(path: &std::path::Path) -> std::process::Command {
+    #[cfg(target_os = "android")]
+    let mut command = {
+        let opener = std::env::var_os("GROK_ANDROID_FILE_OPENER")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "termux-open".into());
+        std::process::Command::new(opener)
+    };
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
     let mut command = std::process::Command::new("xdg-open");
     command
         .arg(path)
@@ -570,8 +590,12 @@ mod tests {
 
     #[test]
     fn browser_unavailable_when_display_vars_empty_or_missing() {
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            // Desktop OSes do not gate on DISPLAY.
+        if cfg!(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        )) {
+            // Desktop OSes and Android intent launchers do not gate on DISPLAY.
             assert!(browser_open_likely_available_from_env(&env(&[])));
             return;
         }

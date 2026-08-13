@@ -420,7 +420,7 @@ pub async fn run_login_flow_with_config(
 
     if has_client_ui {
         // Client provides its own auth UI; just open the browser.
-        if let Err(e) = webbrowser::open(&auth_url) {
+        if let Err(e) = crate::util::open_browser_url(&auth_url) {
             tracing::debug!(error = %e, "OIDC: failed to open browser");
         }
     } else {
@@ -433,7 +433,7 @@ pub async fn run_login_flow_with_config(
         };
         eprintln!("Signing in with {}...", provider_label);
         eprintln!();
-        if let Err(e) = webbrowser::open(&auth_url) {
+        if let Err(e) = crate::util::open_browser_url(&auth_url) {
             tracing::debug!(error = %e, "OIDC: failed to open browser");
         }
         eprintln!("Open this URL to sign in:");

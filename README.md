@@ -17,6 +17,7 @@ headlessly for scripting/CI, or embedded in editors via the Agent Client
 Protocol (ACP).
 
 [Installing the released binary](#installing-the-released-binary) ·
+[Android / Termux](#android--termux-groka) ·
 [Building from source](#building-from-source) ·
 [Documentation](#documentation) ·
 [Repository layout](#repository-layout) ·
@@ -50,6 +51,25 @@ grok --version
 
 See the [changelog](https://x.ai/build/changelog) for the latest fixes,
 features, and improvements in each release.
+
+## Android / Termux (GrokA)
+
+The `termux-android` branch adds a community-maintained native Android ARM64
+port named **GrokA**. It compiles this Rust source for Android/Bionic rather
+than wrapping or patching xAI's GNU/Linux release. It supports Termux, Tmix,
+and compatible terminal environments on Android 9 or newer.
+
+```sh
+./termux/build-android.sh
+./termux/install.sh --binary \
+  target/aarch64-linux-android/release/xai-grok-pager
+groka --version
+```
+
+The installer preserves the official `grok` command. See
+[`termux/README.md`](termux/README.md) for authentication, clipboard, security,
+resource-limit, packaging, and troubleshooting details. This Android port is
+not an official xAI binary distribution.
 
 ## Building from source
 

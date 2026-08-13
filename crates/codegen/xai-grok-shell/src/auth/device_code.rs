@@ -395,7 +395,7 @@ async fn prompt_and_poll(
 /// where the URL is already rendered in the widget).
 async fn open_browser_detached(url: &str) -> bool {
     let url = url.to_owned();
-    match tokio::task::spawn_blocking(move || webbrowser::open(&url)).await {
+    match tokio::task::spawn_blocking(move || crate::util::open_browser_url(&url)).await {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
             tracing::info!(error = %e, "device auth: could not open browser automatically");

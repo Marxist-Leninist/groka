@@ -37,6 +37,12 @@ rustflags = ["-C", "force-unwind-tables=yes"]
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "target-cpu=neoverse-v2", "-C", "force-unwind-tables=yes"]
 
+# Native Android/Termux target. The linker is supplied by the NDK build script
+# through CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER. Keep the CPU generic so
+# the artifact runs across arm64-v8a phones rather than one server CPU.
+[target.aarch64-linux-android]
+rustflags = ["-C", "target-cpu=generic", "-C", "force-unwind-tables=yes"]
+
 [target.x86_64-unknown-linux-musl]
 rustflags = [
     "-C", "force-unwind-tables=yes",

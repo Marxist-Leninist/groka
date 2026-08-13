@@ -65,6 +65,8 @@ cryptify = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 # Default allocator on Unix; gated by the `jemalloc` feature (see main.rs
 # `#[global_allocator]`, cfg(all(feature = "jemalloc", unix))).
 # `stats` is binary-scoped only (not workspace-wide) so this CLI jemalloc

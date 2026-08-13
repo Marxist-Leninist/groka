@@ -1,0 +1,39 @@
+#!/system/bin/sh
+set -eu
+
+script_path=$0
+while [ -L "$script_path" ]; do
+    link_target=$(readlink "$script_path")
+    case $link_target in
+        /*) script_path=$link_target ;;
+        *) script_path=$(dirname "$script_path")/$link_target ;;
+    esac
+done
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
+real_grok=${GROKA_REAL_BIN:-"$script_dir/grok"}
+
+if [ ! -x "$real_grok" ]; then
+    printf 'GrokA native binary is missing or not executable: %s\n' "$real_grok" >&2
+    exit 126
+fi
+
+# Android may report many CPU cores while still killing a large foreground
+# process under memory pressure. Keep the default conservative; explicit user
+# settings always win.
+if [ -z "${GROK_WORKER_THREADS:-}" ]; then
+    GROK_WORKER_THREADS=2
+    export GROK_WORKER_THREADS
+fi
+if [ -z "${RAYON_NUM_THREADS:-}" ]; then
+    RAYON_NUM_THREADS=2
+    export RAYON_NUM_THREADS
+fi
+
+# Some Termux forks do not initialise TMPDIR for non-interactive launchers.
+if [ -z "${TMPDIR:-}" ]; then
+    TMPDIR=${PREFIX:-"$HOME/.local"}/tmp
+    mkdir -p "$TMPDIR"
+    export TMPDIR
+fi
+
+exec "$real_grok" "$@"
